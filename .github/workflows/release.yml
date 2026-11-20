@@ -1,0 +1,92 @@
+name: Release
+
+# Тег vX.Y.Z: проверка версии, сборка, тесты и GitHub Release с zip утилиты и контрольными суммами.
+# Описание релиза - раздел версии из CHANGELOG.md; без него workflow падает.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      # Тег должен совпадать с <Version> в Debug.csproj, иначе в релиз уйдут файлы другой версии
+      - name: Check version
+        id: version
+        shell: pwsh
+        run: |
+          $project = [xml](Get-Content -LiteralPath Debug.csproj -Raw)
+          $version = $project.SelectSingleNode('/Project/PropertyGroup/Version').InnerText
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Неверная версия в Debug.csproj: $version" }
+          if ($env:GITHUB_REF_NAME -cne "v$version") { throw "Тег $env:GITHUB_REF_NAME не совпадает с Version $version в Debug.csproj" }
+          "value=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build
+        run: dotnet build Debug.sln -c Release --nologo
+
+      - name: Test
+        run: dotnet test Debug.sln -c Release --no-build --nologo
+
+      - name: Package
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          dotnet publish Debug.csproj -c Release --nologo
+          if ($LASTEXITCODE) { throw "dotnet publish завершился с кодом $LASTEXITCODE" }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Copy-Item dist/debug.zip "artifacts/PilotServerDebug-$env:VERSION.zip"
+          Push-Location artifacts
+          Get-ChildItem -File | Sort-Object Name | ForEach-Object {
+            '{0}  {1}' -f (Get-FileHash $_.Name -Algorithm SHA256).Hash.ToLowerInvariant(), $_.Name
+          } | Set-Content SHA256SUMS.txt -Encoding ascii
+          Pop-Location
+          Get-ChildItem artifacts | Format-Table Name, Length
+
+      - name: Release notes
+        shell: pwsh
+        env:
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          $changelog = Get-Content -LiteralPath CHANGELOG.md -Encoding UTF8
+          $start = [array]::FindIndex($changelog, [Predicate[string]] { param($l) $l.StartsWith("## [$env:VERSION]") })
+          if ($start -lt 0) { throw "В CHANGELOG.md нет раздела [$env:VERSION]" }
+          $notes = @()
+          for ($i = $start + 1; $i -lt $changelog.Count -and -not $changelog[$i].StartsWith('## ['); $i++) { $notes += $changelog[$i] }
+          $notes += ''
+          $notes += '### Установка'
+          $notes += ''
+          $notes += "Распакуйте ``PilotServerDebug-$env:VERSION.zip`` в любую папку, например ``C:\Tools\debug``. Нужен .NET 8 Runtime. Как подключить к проекту серверного модуля: [README](https://github.com/PilotOpenTools/PilotServerDebug#как-пользоваться)."
+          $notes | Set-Content -LiteralPath release-notes.md -Encoding UTF8
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = @(Get-ChildItem artifacts -File | ForEach-Object { $_.FullName })
+          gh release view $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --clobber @files
+          } else {
+            gh release create $env:GITHUB_REF_NAME --repo $env:GITHUB_REPOSITORY --verify-tag --title "PilotServerDebug $env:GITHUB_REF_NAME" --notes-file release-notes.md @files
+          }
+          if ($LASTEXITCODE) { throw "gh release завершился с кодом $LASTEXITCODE" }

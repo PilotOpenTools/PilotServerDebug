@@ -1,0 +1,15 @@
+{
+  // Обычно этот файл выдаёт админка: «Серверные модули» / «Отладить локально» / debug.json.
+  // Положите его в папку проекта модуля; debug ищет debug.json в текущей папке и выше.
+  "server": "http://localhost:5547/pilot-ice_ru",
+  "login": "ivanov",                       // пароль: DEBUG_PASSWORD или запрос при запуске
+  "licenseType": 103,
+  "contour": "test",                        // test | stage | prod; админка пишет сама, поле необязательное. Для prod запись требует ввода слова prod
+  "module": null,                          // null - свежий *.servext.dll из bin\ рядом с этим файлом
+  "activity": "TestServerAction",
+  "sourceId": "00000000-0000-0000-0000-000000000000", // Id объекта в Pilot (ev.Source)
+  "when": "VersionChanged",
+  "sourceTypes": [ "document" ],
+  "params": { },                           // params активности из сценария
+  "apply": false                           // true - записать изменения на сервер (перед запуском спросит подтверждение; без вопроса - ключ --yes, кроме prod)
+}

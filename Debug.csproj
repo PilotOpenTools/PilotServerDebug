@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!--
+		debug: запуск серверного модуля Pilot (*.servext.dll) на машине разработчика под отладчиком.
+		Модуль получает настоящие IModifierBase / IModifierBackend, подключённые к тестовому серверу Pilot
+		под учёткой разработчика. По умолчанию изменения только показываются (dry-run), на сервер не пишутся.
+	-->
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net8.0</TargetFramework>
+		<AssemblyName>debug</AssemblyName>
+		<RootNamespace>Debug</RootNamespace>
+		<Version>1.1.0</Version>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<InvariantGlobalization>false</InvariantGlobalization>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Ascon.Pilot.Server.Api" Version="26.15.0" />
+		<PackageReference Include="System.ComponentModel.Composition" Version="8.0.0" />
+		<!-- Транзитивные Xml и Pkcs (через Ascon.Pilot.Server.Api / DataProtection) в версиях 8.0.3/8.0.1 имеют уязвимости; обе сборки попадают в zip утилиты; версии подняты до исправленных -->
+		<PackageReference Include="System.Security.Cryptography.Xml" Version="8.0.5" />
+		<PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.23" />
+		<!-- Из SDK нужна только Ascon.Pilot.ServerExtensions.SDK.dll (IServerActivity и контексты), остальное даёт Server.Api -->
+		<PackageReference Include="Ascon.Pilot.ServerExtensions.SDK" Version="26.13.0" ExcludeAssets="all" GeneratePathProperty="true" />
+		<Reference Include="Ascon.Pilot.ServerExtensions.SDK">
+			<HintPath>$(PkgAscon_Pilot_ServerExtensions_SDK)\lib\netstandard2.0\Ascon.Pilot.ServerExtensions.SDK.dll</HintPath>
+		</Reference>
+	</ItemGroup>
+
+	<!-- Тесты лежат в подпапке: в exe они не входят -->
+	<ItemGroup>
+		<Compile Remove="Tests\**" />
+		<None Remove="Tests\**" />
+		<EmbeddedResource Remove="Tests\**" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<None Update="debug.example.json" CopyToOutputDirectory="PreserveNewest" />
+	</ItemGroup>
+
+	<!-- dotnet publish -c Release: dist\debug.zip - раздаётся разработчикам (в релизе GitHub - PilotServerDebug-<версия>.zip) -->
+	<Target Name="ZipAfterPublish" AfterTargets="Publish">
+		<MakeDir Directories="$(MSBuildProjectDirectory)\dist" />
+		<ZipDirectory SourceDirectory="$(PublishDir)" DestinationFile="$(MSBuildProjectDirectory)\dist\debug.zip" Overwrite="true" />
+	</Target>
+</Project>
